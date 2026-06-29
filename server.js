@@ -10,6 +10,7 @@
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 
 // ────────────────────────────────────────────
 // runfile の読み込み・パース
