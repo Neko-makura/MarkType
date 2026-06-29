@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MD Editor</title>
+<style>
+  :root {
+    --bg:        #1a1a2e;
+    --surface:   #16213e;
+    --edit-bg:   #0f3460;
+    --text:      #e8e6e3;
+    --muted:     #8b8fa8;
+    --accent:    #4fc3f7;
+    --accent2:   #81d4fa;
+    --green:     #a8d8a8;
+    --red:       #f48fb1;
+    --yellow:    #fff176;
+    --border:    #2a2a4a;
+    --code-bg:   #0d0d1a;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-ui:   -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --lh:        1.75;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 15px;
+    line-height: var(--lh);
+    overflow: hidden;
+  }
+
+  /* ── レイアウト ── */
+  #app {
+    display: grid;
+    grid-template-rows: 40px 1fr;
+    height: 100vh;
+  }
+
+  /* ── ツールバー ── */
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+
+  .tb-title {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-right: auto;
+  }
+
+  .tb-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .tb-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: rgba(79,195,247,.07);
+  }
+
+  .tb-sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+
+  .tb-stat {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--muted);
+    padding: 2px 8px;
+  }
+
+  /* ── エディタ本体 ── */
+  #editor-wrap {
+    overflow-y: auto;
+    padding: 48px max(10vw, 40px);
+    scroll-behavior: smooth;
+  }
+
+  #editor {
+    max-width: 720px;
+    margin: 0 auto;
+    outline: none;
+    min-height: calc(100vh - 100px);
+  }
+
+  /* ── ブロック共通 ── */
+  .block {
+    position: relative;
+    border-radius: 5px;
+    transition: background .12s;
+  }
+
+  /* ── 編集行（生テキスト表示）── */
+  .block.editing {
+    background: var(--edit-bg);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+
+  .block-input {
+    display: block;
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--accent2);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.6;
+    resize: none;
+    padding: 6px 12px;
+    min-height: 28px;
+    overflow: hidden;
+    white-space: pre-wrap;
+    word-break: break-word;
+    caret-color: var(--accent);
+  }
+
+  /* ── レンダリング済み ── */
+  .block-render {
+    padding: 2px 4px;
+    cursor: text;
+    border-radius: 4px;
+    transition: background .1s;
+  }
+  .block-render:hover {
+    background: rgba(255,255,255,.03);
+  }
+
+  /* ── GFM スタイル ── */
+  .block-render h1, .block-render h2, .block-render h3,
+  .block-render h4, .block-render h5, .block-render h6 {
+    font-weight: 700;
+    color: var(--text);
+    margin: .1em 0 .05em;
+  }
+  .block-render h1 { font-size: 2em;   border-bottom: 2px solid var(--accent); padding-bottom: .2em; }
+  .block-render h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: .15em; }
+  .block-render h3 { font-size: 1.25em; color: var(--accent2); }
+  .block-render h4 { font-size: 1.05em; color: var(--muted); }
+  .block-render h5, .block-render h6 { font-size: .95em; color: var(--muted); }
+
+  .block-render p { margin: 0; line-height: var(--lh); }
+
+  .block-render ul, .block-render ol {
+    padding-left: 1.6em;
+    margin: .1em 0;
+  }
+  .block-render li { line-height: var(--lh); }
+
+  /* タスクリスト */
+  .block-render .task-item { list-style: none; margin-left: -1.2em; }
+  .block-render .task-item input[type=checkbox] {
+    accent-color: var(--accent);
+    margin-right: .5em;
+    cursor: pointer;
+  }
+
+  .block-render blockquote {
+    border-left: 3px solid var(--accent);
+    margin: 0;
+    padding: .2em 1em;
+    color: var(--muted);
+    background: rgba(79,195,247,.05);
+    border-radius: 0 4px 4px 0;
+  }
+
+  .block-render code {
+    font-family: var(--font-mono);
+    font-size: .88em;
+    background: var(--code-bg);
+    color: var(--yellow);
+    padding: .1em .4em;
+    border-radius: 3px;
+  }
+
+  .block-render pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1em 1.2em;
+    overflow-x: auto;
+    margin: .2em 0;
+  }
+  .block-render pre code {
+    background: none;
+    color: var(--green);
+    padding: 0;
+    font-size: .87em;
+    line-height: 1.55;
+  }
+
+  .block-render hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: .5em 0;
+  }
+
+  .block-render a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .block-render strong { color: var(--text); font-weight: 700; }
+  .block-render em { color: var(--accent2); font-style: italic; }
+  .block-render del { color: var(--muted); }
+
+  /* テーブル */
+  .block-render table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: .9em;
+  }
+  .block-render th, .block-render td {
+    border: 1px solid var(--border);
+    padding: .3em .7em;
+    text-align: left;
+  }
+  .block-render th { background: rgba(79,195,247,.1); color: var(--accent); font-weight: 600; }
+  .block-render tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+  /* ── フェンスブロック（複数行）── */
+  .block-fence .block-render pre { margin: 0; }
+
+  /* ── スクロールバー ── */
+  #editor-wrap::-webkit-scrollbar { width: 6px; }
+  #editor-wrap::-webkit-scrollbar-track { background: transparent; }
+  #editor-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── カーソル点滅（空行プレースホルダー）── */
+  .block-render.empty::before {
+    content: ' ';
+    display: inline-block;
+    width: 2px; height: 1em;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+    margin-right: 2px;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+  /* ── セレクション ── */
+  ::selection { background: rgba(79,195,247,.25); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="toolbar">
+    <span class="tb-title">MD Editor</span>
+    <button class="tb-btn" id="btn-bold" title="Bold (Ctrl+B)"><b>B</b></button>
+    <button class="tb-btn" id="btn-italic" title="Italic (Ctrl+I)"><i>I</i></button>
+    <button class="tb-btn" id="btn-code" title="Code (Ctrl+`)">` `</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-h1">H1</button>
+    <button class="tb-btn" id="btn-h2">H2</button>
+    <button class="tb-btn" id="btn-h3">H3</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-ul">— UL</button>
+    <button class="tb-btn" id="btn-ol">1. OL</button>
+    <button class="tb-btn" id="btn-bq">" BQ</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-copy">Copy MD</button>
+    <span class="tb-stat" id="stat">0 words</span>
+  </div>
+  <div id="editor-wrap">
+    <div id="editor"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════
+   GFM パーサー（外部ライブラリ不使用）
+═══════════════════════════════════════════ */
+const GFM = (() => {
+
+  /* インラインマークアップ変換 */
+  function parseInline(s) {
+    // エスケープ
+    s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    // インラインコード（優先）
+    s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // 画像  ![alt](url)
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,
+      '<img src="$2" alt="$1" style="max-width:100%">');
+
+    // リンク  [text](url)
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+    // 打ち消し  ~~text~~
+    s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+    // 太字斜体
+    s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+    s = s.replace(/___([^_]+)___/g,       '<strong><em>$1</em></strong>');
+    // 太字
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__([^_]+)__/g,     '<strong>$1</strong>');
+    // 斜体
+    s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    s = s.replace(/_([^_]+)_/g,   '<em>$1</em>');
+
+    return s;
+  }
+
+  /* テーブル行 → <tr> */
+  function tableRow(line, isHead) {
+    const cells = line.split('|').map(c => c.trim()).filter((c,i,a) => i>0 && i<a.length-1 || (i===0&&c)||(i===a.length-1&&c));
+    const tag = isHead ? 'th' : 'td';
+    return '<tr>' + cells.map(c=>`<${tag}>${parseInline(c)}</${tag}>`).join('') + '</tr>';
+  }
+
+  /* ブロック単位でHTML化 */
+  function renderBlock(lines) {
+    if (!lines.length) return '';
+    const raw = lines.join('\n');
+    const line = lines[0];
+
+    // 水平線
+    if (/^(\*{3,}|-{3,}|_{3,})\s*$/.test(line) && lines.length===1)
+      return '<hr>';
+
+    // 見出し
+    const hm = line.match(/^(#{1,6})\s+(.*)/);
+    if (hm && lines.length===1) {
+      const lvl = hm[1].length;
+      return `<h${lvl}>${parseInline(hm[2])}</h${lvl}>`;
+    }
+
+    // 引用
+    if (line.startsWith('>')) {
+      const inner = lines.map(l => l.replace(/^>\s?/,'')).join('\n');
+      return `<blockquote>${renderBlock(inner.split('\n'))}</blockquote>`;
+    }
+
+    // コードフェンス（複数行ブロックで処理）
+    if (line.startsWith('```') || line.startsWith('~~~')) {
+      const lang = line.slice(3).trim();
+      const code = lines.slice(1).filter(l=>!l.startsWith('```')&&!l.startsWith('~~~'))
+                        .join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const langAttr = lang ? ` class="language-${lang}"` : '';
+      return `<pre><code${langAttr}>${code}</code></pre>`;
+    }
+
+    // テーブル（3行以上、2行目がセパレータ）
+    if (lines.length >= 2 && /^\|?[\s:|-]+\|/.test(lines[1])) {
+      const alignRow = lines[1];
+      const headHtml = tableRow(lines[0], true);
+      const bodyHtml = lines.slice(2).map(l => tableRow(l, false)).join('');
+      return `<table><thead>${headHtml}</thead><tbody>${bodyHtml}</tbody></table>`;
+    }
+
+    // 順序なしリスト
+    if (/^[-*+]\s/.test(line)) {
+      const items = lines.map(l => {
+        const m = l.match(/^[-*+]\s\[([xX ])\]\s(.*)/);
+        if (m) return `<li class="task-item"><input type="checkbox" ${m[1].toLowerCase()==='x'?'checked':''} onclick="return false"> ${parseInline(m[2])}</li>`;
+        return `<li>${parseInline(l.replace(/^[-*+]\s/,''))}</li>`;
+      }).join('');
+      return `<ul>${items}</ul>`;
+    }
+
+    // 順序付きリスト
+    if (/^\d+\.\s/.test(line)) {
+      const startM = line.match(/^(\d+)\./);
+      const start = startM ? ` start="${startM[1]}"` : '';
+      const items = lines.map(l =>
+        `<li>${parseInline(l.replace(/^\d+\.\s/,''))}</li>`
+      ).join('');
+      return `<ol${start}>${items}</ol>`;
+    }
+
+    // 通常段落
+    return `<p>${lines.map(parseInline).join('<br>')}</p>`;
+  }
+
+  /* メインレンダラ: markdown文字列 → HTML文字列 */
+  function render(md) {
+    const lines = md.split('\n');
+    const out = [];
+    let buf = [];
+    let inFence = false;
+    let fenceMark = '';
+
+    function flush() {
+      if (!buf.length) return;
+      out.push(renderBlock(buf));
+      buf = [];
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+
+      // フェンス開閉
+      if (!inFence && /^(`{3,}|~{3,})/.test(l)) {
+        flush();
+        inFence = true;
+        fenceMark = l.match(/^(`{3,}|~{3,})/)[1];
+        buf.push(l);
+        continue;
+      }
+      if (inFence) {
+        if (l.startsWith(fenceMark)) {
+          buf.push(l);
+          flush();
+          inFence = false;
+          fenceMark = '';
+        } else {
+          buf.push(l);
+        }
+        continue;
+      }
+
+      // 空行でブロック区切り
+      if (l.trim() === '') { flush(); continue; }
+
+      // 同種ブロックをバッファへ
+      if (buf.length === 0) {
+        buf.push(l);
+      } else {
+        const firstLine = buf[0];
+        const sameList = (/^[-*+]\s/.test(l) && /^[-*+]\s/.test(firstLine)) ||
+                         (/^\d+\.\s/.test(l) && /^\d+\.\s/.test(firstLine)) ||
+                         (l.startsWith('>') && firstLine.startsWith('>'));
+        if (sameList) {
+          buf.push(l);
+        } else {
+          // テーブルは複数行まとめて処理
+          if (i+1 < lines.length && /^\|?[\s:|-]+\|/.test(lines[i+1])) {
+            buf.push(l); // ヘッダ行
+          } else if (/^\|?[\s:|-]+\|/.test(l) && buf.length > 0) {
+            buf.push(l); // セパレータ行
+          } else if (buf.length >= 2 && /^\|?[\s:|-]+\|/.test(buf[1])) {
+            buf.push(l); // テーブルボディ
+          } else {
+            flush();
+            buf.push(l);
+          }
+        }
+      }
+    }
+    flush();
+    return out.join('\n');
+  }
+
+  return { render, parseInline };
+})();
+
+
+/* ═══════════════════════════════════════════
+   エディタコア
+═══════════════════════════════════════════ */
+
+const INITIAL_MD = `# MD Editor へようこそ
+
+**Typora** 風のインラインプレビューエディタです。行をクリックすると生のMarkdownが表示されます。
+
+## 機能
+
+- GFM（GitHub Flavored Markdown）準拠
+- 外部ライブラリ **不使用**
+- 編集行のみ生テキスト表示
+
+## インライン記法
+
+**太字** · *斜体* · ~~打消し~~ · \`code\` · [リンク](https://example.com)
+
+## タスクリスト
+
+- [x] パーサー実装
+- [x] Typora風インライン編集
+- [ ] 残りの機能
+
+## コードブロック
+
+\`\`\`js
+const greet = name => \`Hello, \${name}!\`;
+console.log(greet('world'));
+\`\`\`
+
+## テーブル
+
+| 言語 | 速度 | 用途 |
+|------|------|------|
+| Go   | ⚡ 速い | サーバー |
+| Rust | ⚡ 速い | システム |
+| JS   | 普通 | ブラウザ |
+
+---
+
+> 引用文は \`>\` で書きます。
+
+## 数式テキスト
+
+水平線の下に何でも書けます。`;
+
+
+const editorEl = document.getElementById('editor');
+
+// ── ブロック分割（フェンスを1ブロックとしてまとめる）
+function splitBlocks(md) {
+  const lines = md.split('\n');
+  const blocks = [];
+  let buf = [];
+  let inFence = false;
+  let fenceMark = '';
+
+  function push() {
+    if (buf.length) { blocks.push(buf.join('\n')); buf = []; }
+  }
+
+  for (const l of lines) {
+    if (!inFence && /^(`{3,}|~{3,})/.test(l)) {
+      push();
+      inFence = true;
+      fenceMark = l.match(/^(`{3,}|~{3,})/)[1];
+      buf.push(l);
+      continue;
+    }
+    if (inFence) {
+      buf.push(l);
+      if (l.startsWith(fenceMark)) { inFence = false; fenceMark = ''; push(); }
+      continue;
+    }
+    // 空行 = ブロック区切り
+    if (l.trim() === '') { push(); blocks.push(''); }
+    else buf.push(l);
+  }
+  push();
+  return blocks;
+}
+
+// ── ブロック→HTML
+function renderBlockHtml(md) {
+  if (md.trim() === '') return '';
+  return GFM.render(md);
+}
+
+// ── Block クラス
+class Block {
+  constructor(md, container) {
+    this.md = md;
+    this.editing = false;
+    this.isFence = /^(`{3,}|~{3,})/.test(md);
+
+    this.root = document.createElement('div');
+    this.root.className = 'block' + (this.isFence ? ' block-fence' : '');
+
+    // レンダリング面
+    this.render = document.createElement('div');
+    this.render.className = 'block-render';
+    this.render.setAttribute('contenteditable', 'false');
+
+    // テキスト編集面
+    this.input = document.createElement('textarea');
+    this.input.className = 'block-input';
+    this.input.spellcheck = false;
+    this.input.value = this.md;
+    this.input.style.display = 'none';
+
+    this.root.appendChild(this.render);
+    this.root.appendChild(this.input);
+    container.appendChild(this.root);
+
+    this._updateRender();
+    this._bindEvents();
+  }
+
+  _updateRender() {
+    const html = renderBlockHtml(this.md);
+    if (html === '') {
+      this.render.innerHTML = '';
+      this.render.classList.add('empty');
+    } else {
+      this.render.innerHTML = html;
+      this.render.classList.remove('empty');
+    }
+  }
+
+  _autoResize() {
+    this.input.style.height = '0';
+    this.input.style.height = this.input.scrollHeight + 'px';
+  }
+
+  _bindEvents() {
+    // クリック→編集モード
+    this.render.addEventListener('click', () => this._startEdit());
+
+    // テキスト変更
+    this.input.addEventListener('input', () => {
+      this.md = this.input.value;
+      this.isFence = /^(`{3,}|~{3,})/.test(this.md);
+      this.root.classList.toggle('block-fence', this.isFence);
+      this._autoResize();
+      updateStat();
+    });
+
+    // フォーカス外れ→レンダリング
+    this.input.addEventListener('blur', () => this._endEdit());
+
+    // キーボード操作
+    this.input.addEventListener('keydown', e => this._onKey(e));
+  }
+
+  _startEdit() {
+    if (this.editing) return;
+    this.editing = true;
+    this.root.classList.add('editing');
+    this.render.style.display = 'none';
+    this.input.style.display = 'block';
+    this._autoResize();
+    this.input.focus();
+    // カーソルを末尾に
+    const len = this.input.value.length;
+    this.input.setSelectionRange(len, len);
+  }
+
+  _endEdit() {
+    this.editing = false;
+    this.root.classList.remove('editing');
+    this.input.style.display = 'none';
+    this.render.style.display = '';
+    this._updateRender();
+  }
+
+  _onKey(e) {
+    // Enter: 新ブロック挿入（フェンス内は普通の改行）
+    if (e.key === 'Enter' && !e.shiftKey && !this.isFence) {
+      e.preventDefault();
+      const pos = this.input.selectionStart;
+      const before = this.input.value.slice(0, pos);
+      const after  = this.input.value.slice(pos);
+      this.md = before;
+      this.input.value = before;
+      this._autoResize();
+      const nb = blockManager.insertAfter(this, after.trimStart() || '');
+      nb._startEdit();
+      nb.input.setSelectionRange(0, 0);
+      return;
+    }
+
+    // Shift+Enter: フェンス内改行 or 段落内改行
+    if (e.key === 'Enter' && e.shiftKey) {
+      // デフォルト動作（textarea の改行）
+      return;
+    }
+
+    // Backspace: 先頭で前ブロックへ結合
+    if (e.key === 'Backspace' && this.input.selectionStart === 0 && this.input.selectionEnd === 0) {
+      const prev = blockManager.prevBlock(this);
+      if (!prev) return;
+      e.preventDefault();
+      const joinPos = prev.md.length;
+      prev.md += this.input.value;
+      blockManager.remove(this);
+      prev._startEdit();
+      prev.input.setSelectionRange(joinPos, joinPos);
+      return;
+    }
+
+    // Delete: 末尾で次ブロックと結合
+    if (e.key === 'Delete') {
+      const val = this.input.value;
+      if (this.input.selectionStart === val.length && this.input.selectionEnd === val.length) {
+        const next = blockManager.nextBlock(this);
+        if (!next) return;
+        e.preventDefault();
+        const joinPos = this.md.length;
+        this.md += next.md;
+        blockManager.remove(next);
+        this._startEdit();
+        this.input.setSelectionRange(joinPos, joinPos);
+        return;
+      }
+    }
+
+    // Tab → 2スペース
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = this.input.selectionStart;
+      const v = this.input.value;
+      this.input.value = v.slice(0,s) + '  ' + v.slice(this.input.selectionEnd);
+      this.input.selectionStart = this.input.selectionEnd = s + 2;
+      this.md = this.input.value;
+      this._autoResize();
+      return;
+    }
+
+    // ↑/↓ で前後ブロックへ
+    if (e.key === 'ArrowUp' && this.input.selectionStart === 0) {
+      const prev = blockManager.prevBlock(this);
+      if (prev) { e.preventDefault(); this._endEdit(); prev._startEdit(); }
+    }
+    if (e.key === 'ArrowDown') {
+      const val = this.input.value;
+      if (this.input.selectionStart === val.length) {
+        const next = blockManager.nextBlock(this);
+        if (next) { e.preventDefault(); this._endEdit(); next._startEdit(); }
+      }
+    }
+  }
+
+  getText() { return this.md; }
+}
+
+// ── ブロックマネージャー
+const blockManager = {
+  blocks: [],
+
+  init(md) {
+    editorEl.innerHTML = '';
+    this.blocks = [];
+    const parts = splitBlocks(md);
+    for (const part of parts) {
+      this.blocks.push(new Block(part, editorEl));
+    }
+    if (!this.blocks.length) {
+      this.blocks.push(new Block('', editorEl));
+    }
+    updateStat();
+  },
+
+  insertAfter(block, md) {
+    const idx = this.blocks.indexOf(block);
+    const nb = new Block(md, editorEl);
+    this.blocks.splice(idx + 1, 0, nb);
+    // DOM位置を正しく挿入
+    block.root.after(nb.root);
+    return nb;
+  },
+
+  remove(block) {
+    const idx = this.blocks.indexOf(block);
+    if (idx < 0) return;
+    this.blocks.splice(idx, 1);
+    block.root.remove();
+    updateStat();
+  },
+
+  prevBlock(block) {
+    const idx = this.blocks.indexOf(block);
+    return idx > 0 ? this.blocks[idx - 1] : null;
+  },
+
+  nextBlock(block) {
+    const idx = this.blocks.indexOf(block);
+    return idx < this.blocks.length - 1 ? this.blocks[idx + 1] : null;
+  },
+
+  getMarkdown() {
+    return this.blocks.map(b => b.getText()).join('\n\n');
+  }
+};
+
+// ── 統計
+function updateStat() {
+  const md = blockManager.getMarkdown();
+  const words = md.trim() ? md.trim().split(/\s+/).length : 0;
+  const chars = md.length;
+  document.getElementById('stat').textContent = `${words} words · ${chars} chars`;
+}
+
+// ── ツールバー操作（現在フォーカス中ブロックへ適用）
+function getActiveBlock() {
+  return blockManager.blocks.find(b => b.editing) || null;
+}
+
+function wrapSelection(open, close) {
+  const b = getActiveBlock();
+  if (!b) return;
+  const ta = b.input;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  const sel = ta.value.slice(s, e);
+  const newText = open + sel + close;
+  ta.setRangeText(newText, s, e, 'select');
+  ta.focus();
+  b.md = ta.value;
+  b._autoResize();
+}
+
+function prependLine(prefix) {
+  const b = getActiveBlock();
+  if (!b) return;
+  const ta = b.input;
+  const v = ta.value;
+  if (v.startsWith(prefix)) {
+    ta.value = v.slice(prefix.length);
+  } else {
+    ta.value = prefix + v;
+  }
+  b.md = ta.value;
+  b._autoResize();
+  ta.focus();
+}
+
+document.getElementById('btn-bold')  .onclick = () => wrapSelection('**','**');
+document.getElementById('btn-italic').onclick = () => wrapSelection('*','*');
+document.getElementById('btn-code')  .onclick = () => wrapSelection('`','`');
+document.getElementById('btn-h1')    .onclick = () => prependLine('# ');
+document.getElementById('btn-h2')    .onclick = () => prependLine('## ');
+document.getElementById('btn-h3')    .onclick = () => prependLine('### ');
+document.getElementById('btn-ul')    .onclick = () => prependLine('- ');
+document.getElementById('btn-ol')    .onclick = () => prependLine('1. ');
+document.getElementById('btn-bq')    .onclick = () => prependLine('> ');
+
+document.getElementById('btn-copy').onclick = () => {
+  navigator.clipboard.writeText(blockManager.getMarkdown())
+    .then(() => {
+      const btn = document.getElementById('btn-copy');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy MD', 1200);
+    });
+};
+
+// ── エディタ外クリックで全ブロックをレンダリングに戻す
+document.getElementById('editor-wrap').addEventListener('mousedown', e => {
+  if (!editorEl.contains(e.target)) {
+    blockManager.blocks.forEach(b => { if (b.editing) b._endEdit(); });
+  }
+});
+
+// ── ショートカット
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'b') { e.preventDefault(); wrapSelection('**','**'); }
+    if (e.key === 'i') { e.preventDefault(); wrapSelection('*','*'); }
+    if (e.key === '`') { e.preventDefault(); wrapSelection('`','`'); }
+  }
+});
+
+// ── 起動
+blockManager.init(INITIAL_MD);
+</script>
+</body>
+</html>
