@@ -1,9 +1,8 @@
-/**
+/*
  * server.js
- * 依存なし（Node.js組み込みモジュールのみ）のHTTPサーバー
- * 設定は同階層の "runfile" で管理する
+ * by Nekomakura
  *
- * runfile の書式:
+ * runfileの初期設定:
  *   PORT=3000
  *   STATIC_ROOT=openfile
  */
