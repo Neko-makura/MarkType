@@ -682,6 +682,23 @@ graph TD
 
 水平線の下に何でも書けます。`;
 
+async function loadInitialMarkdown() {
+  const candidates = ['/openpage/example.md', './example.md', 'example.md'];
+
+  for (const url of candidates) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const text = await res.text();
+        if (text.trim()) return text;
+      }
+    } catch (err) {
+      console.warn(`[loadInitialMarkdown] ${url} の読み込みに失敗しました`, err);
+    }
+  }
+
+  return INITIAL_MD;
+}
 
 const editorEl = document.getElementById('editor');
 
@@ -1111,7 +1128,10 @@ document.addEventListener('keydown', e => {
 });
 
 // ── 起動
-blockManager.init(INITIAL_MD);
+(async () => {
+  const initialMd = await loadInitialMarkdown();
+  blockManager.init(initialMd);
+})();
 </script>
 </body>
 </html>

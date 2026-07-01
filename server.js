@@ -127,6 +127,11 @@ const server = http.createServer((req, res) => {
     return sendError(res, 400, "Bad Request");
   }
 
+  // /openpage/* を静的ルート配下へ解決
+  if (urlPath === "/openpage" || urlPath.startsWith("/openpage/")) {
+    urlPath = urlPath === "/openpage" ? "/" : urlPath.slice("/openpage".length);
+  }
+
   // 末尾スラッシュ → index.html にフォールバック
   if (urlPath.endsWith("/")) urlPath += "index.html";
 
