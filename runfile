@@ -1,4 +1,4 @@
 #localhost:3000
 PORT=3000
-#root=openfile/index.html
-STATIC_ROOT=openfile
+#root=openpage/index.html
+STATIC_ROOT=openpage

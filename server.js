@@ -21,7 +21,7 @@ function loadRunfile() {
   /** デフォルト値 */
   const config = {
     PORT: 3000,
-    STATIC_ROOT: "openfile",
+    STATIC_ROOT: "openpage",
   };
 
   if (!fs.existsSync(runfilePath)) {

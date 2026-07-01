@@ -4,6 +4,22 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MarkType</title>
+<script>
+  // MathJax 設定（読み込み前に定義する必要あり）
+  window.MathJax = {
+    tex: {
+      inlineMath: [['$', '$'], ['\\(', '\\)']],
+      displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      processEscapes: true
+    },
+    svg: { fontCache: 'global' },
+    startup: {
+      typeset: false // 手動でtypesetする
+    }
+  };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" id="MathJax-script" async></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 <style>
   :root {
     --bg:        #1a1a2e;
@@ -214,6 +230,56 @@
     margin: .5em 0;
   }
 
+  .block-render img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    margin: .3em 0;
+    background: var(--code-bg);
+  }
+
+  /* ── Mermaid 図表 ── */
+  .block-render .mermaid-wrap {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1em;
+    margin: .3em 0;
+    overflow-x: auto;
+    display: flex;
+    justify-content: center;
+  }
+  .block-render .mermaid-wrap svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .block-render .mermaid-wrap.mermaid-error {
+    color: var(--red);
+    font-family: var(--font-mono);
+    font-size: .85em;
+    white-space: pre-wrap;
+    justify-content: flex-start;
+  }
+  .block-render .mermaid-wrap.mermaid-loading {
+    color: var(--muted);
+    font-size: .85em;
+    justify-content: flex-start;
+  }
+
+  /* ── MathJax 数式 ── */
+  .block-render .math-display {
+    overflow-x: auto;
+    margin: .4em 0;
+    text-align: center;
+  }
+  .block-render .math-display mjx-container {
+    font-size: 1.05em;
+  }
+  .block-render .math-inline mjx-container {
+    display: inline-block !important;
+  }
+
   .block-render a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
   .block-render strong { color: var(--text); font-weight: 700; }
   .block-render em { color: var(--accent2); font-style: italic; }
@@ -246,12 +312,10 @@
     content: ' ';
     display: inline-block;
     width: 2px; height: 1em;
-    background: var(--accent);
-    animation: blink 1s step-end infinite;
+    background: transparent;
     vertical-align: text-bottom;
     margin-right: 2px;
   }
-  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
 
   /* ── セレクション ── */
   ::selection { background: rgba(79,195,247,.25); }
@@ -272,6 +336,9 @@
     <button class="tb-btn" id="btn-ul">— UL</button>
     <button class="tb-btn" id="btn-ol">1. OL</button>
     <button class="tb-btn" id="btn-bq">" BQ</button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-math" title="Inline math $...$">Σ math</button>
+    <button class="tb-btn" id="btn-mermaid" title="Mermaid diagram">◇ diagram</button>
     <div class="tb-sep"></div>
     <button class="tb-btn" id="btn-copy">Copy MD</button>
     <span class="tb-stat" id="stat">0 words</span>
@@ -294,12 +361,41 @@ const GFM = (() => {
     // エスケープ
     s = s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
+    // インライン数式 $...$ を先に退避（他のインライン変換で壊れないように）
+    const mathStash = [];
+    s = s.replace(/\$([^\$\n]+)\$/g, (m, tex) => {
+      const idx = mathStash.length;
+      mathStash.push(tex);
+      return `\u0000MATH${idx}\u0000`;
+    });
+
     // インラインコード（優先）
     s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-    // 画像  ![alt](url)
-    s = s.replace(/!\[([^\]]*)\]\(([^)]+)\)/g,
-      '<img src="$2" alt="$1" style="max-width:100%">');
+    // 画像  ![alt](url) / ![alt](url =WxH) / ![alt](url){width=W height=H}
+    s = s.replace(/!\[([^\]]*)\]\(([^)]+?)\)(\{[^}]*\})?/g, (m, alt, urlPart, braceOpt) => {
+      // "url =300x200" 形式のサイズ指定を分離
+      let url = urlPart;
+      let w = '', h = '';
+      const sizeM = urlPart.match(/^(\S+)\s+=\s*(\d+)?x(\d+)?\s*$/);
+      if (sizeM) {
+        url = sizeM[1];
+        w = sizeM[2] || '';
+        h = sizeM[3] || '';
+      }
+      // "{width=300 height=200}" 形式のサイズ指定
+      if (braceOpt) {
+        const wM = braceOpt.match(/width\s*=\s*(\d+%?)/);
+        const hM = braceOpt.match(/height\s*=\s*(\d+%?)/);
+        if (wM) w = wM[1];
+        if (hM) h = hM[1];
+      }
+      let style = 'max-width:100%';
+      if (w) style += `;width:${/%$/.test(w) ? w : w + 'px'}`;
+      if (h) style += `;height:${/%$/.test(h) ? h : h + 'px'}`;
+      if (!w && !h) style = 'max-width:100%';
+      return `<img src="${url}" alt="${alt}" style="${style}">`;
+    });
 
     // リンク  [text](url)
     s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
@@ -317,6 +413,10 @@ const GFM = (() => {
     // 斜体
     s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
     s = s.replace(/_([^_]+)_/g,   '<em>$1</em>');
+
+    // 退避しておいたインライン数式を復元
+    s = s.replace(/\u0000MATH(\d+)\u0000/g, (m, i) =>
+      `<span class="math-inline">\\(${mathStash[Number(i)]}\\)</span>`);
 
     return s;
   }
@@ -354,10 +454,28 @@ const GFM = (() => {
     // コードフェンス（複数行ブロックで処理）
     if (line.startsWith('```') || line.startsWith('~~~')) {
       const lang = line.slice(3).trim();
-      const code = lines.slice(1).filter(l=>!l.startsWith('```')&&!l.startsWith('~~~'))
-                        .join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const rawCode = lines.slice(1).filter(l=>!l.startsWith('```')&&!l.startsWith('~~~')).join('\n');
+
+      // Mermaid 図表
+      if (lang.toLowerCase() === 'mermaid') {
+        const escaped = rawCode.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<div class="mermaid-wrap mermaid-pending" data-mermaid-src="${encodeURIComponent(rawCode)}">${escaped}</div>`;
+      }
+
+      const code = rawCode.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const langAttr = lang ? ` class="language-${lang}"` : '';
       return `<pre><code${langAttr}>${code}</code></pre>`;
+    }
+
+    // ブロック数式 $$ ... $$（$$ 単独行で開始・終了する複数行フェンス）
+    if (/^\$\$\s*$/.test(line.trim())) {
+      const inner = lines.slice(1, -1).join('\n');
+      return `<div class="math-display">\\[${inner}\\]</div>`;
+    }
+    // ブロック数式 $$内容$$（1行で完結する場合）
+    if (/^\$\$[\s\S]*\$\$\s*$/.test(raw) && lines.length === 1) {
+      const m = raw.match(/^\$\$([\s\S]*?)\$\$\s*$/);
+      if (m) return `<div class="math-display">\\[${m[1]}\\]</div>`;
     }
 
     // テーブル（3行以上、2行目がセパレータ）
@@ -409,7 +527,7 @@ const GFM = (() => {
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
 
-      // フェンス開閉
+      // フェンス開閉（コードフェンス ``` ~~~）
       if (!inFence && /^(`{3,}|~{3,})/.test(l)) {
         flush();
         inFence = true;
@@ -417,8 +535,25 @@ const GFM = (() => {
         buf.push(l);
         continue;
       }
+      // フェンス開閉（数式ブロック $$）
+      if (!inFence && /^\$\$\s*$/.test(l.trim())) {
+        flush();
+        inFence = true;
+        fenceMark = '$$';
+        buf.push(l);
+        continue;
+      }
       if (inFence) {
-        if (l.startsWith(fenceMark)) {
+        if (fenceMark === '$$') {
+          if (/^\$\$\s*$/.test(l.trim())) {
+            buf.push(l);
+            flush();
+            inFence = false;
+            fenceMark = '';
+          } else {
+            buf.push(l);
+          }
+        } else if (l.startsWith(fenceMark)) {
           buf.push(l);
           flush();
           inFence = false;
@@ -483,6 +618,20 @@ const INITIAL_MD = `# MD Editor へようこそ
 
 **太字** · *斜体* · ~~打消し~~ · \`code\` · [リンク](https://example.com)
 
+## 画像
+
+通常の画像:
+
+![サンプル画像](https://picsum.photos/seed/mdtype/600/300)
+
+サイズ指定（ \`=幅x高さ\` 形式）:
+
+![サイズ指定画像](https://picsum.photos/seed/small/400/400 =200x200)
+
+サイズ指定（ \`{width=... height=...}\` 形式、%指定も可）:
+
+![サイズ指定画像2](https://picsum.photos/seed/wide/800/300){width=80%}
+
 ## タスクリスト
 
 - [x] パーサー実装
@@ -508,12 +657,97 @@ console.log(greet('world'));
 
 > 引用文は \`>\` で書きます。
 
+## 数式（MathJax）
+
+インライン数式: エネルギーは $E = mc^2$ で表されます。
+
+ブロック数式:
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
+$$
+
+## 図表（Mermaid）
+
+\`\`\`mermaid
+graph TD
+  A[開始] --> B{条件分岐}
+  B -->|Yes| C[処理A]
+  B -->|No| D[処理B]
+  C --> E[終了]
+  D --> E[終了]
+\`\`\`
+
 ## 数式テキスト
 
 水平線の下に何でも書けます。`;
 
 
 const editorEl = document.getElementById('editor');
+
+// ── フェンス（コード/数式ブロック）開始行かどうか
+function isFenceStart(md) {
+  return /^(`{3,}|~{3,}|\$\$\s*$)/.test((md.split('\n')[0]||'').trim()) ||
+         /^(`{3,}|~{3,})/.test(md);
+}
+
+/* ═══════════════════════════════════════════
+   MathJax / Mermaid 拡張レンダリング
+═══════════════════════════════════════════ */
+let mermaidSeq = 0;
+
+function renderExtras(scopeEl) {
+  renderMath(scopeEl);
+  renderMermaid(scopeEl);
+}
+
+function renderMath(scopeEl) {
+  if (!scopeEl.querySelector('.math-display, .math-inline')) return;
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    window.MathJax.typesetPromise([scopeEl]).catch(err => console.error('MathJax error:', err));
+  } else {
+    // まだ読み込み中なら少し待って再試行
+    setTimeout(() => {
+      if (window.MathJax && window.MathJax.typesetPromise) {
+        window.MathJax.typesetPromise([scopeEl]).catch(err => console.error('MathJax error:', err));
+      }
+    }, 500);
+  }
+}
+
+function renderMermaid(scopeEl) {
+  const nodes = scopeEl.querySelectorAll('.mermaid-wrap.mermaid-pending');
+  if (!nodes.length) return;
+
+  const run = () => {
+    nodes.forEach(async node => {
+      const src = decodeURIComponent(node.getAttribute('data-mermaid-src') || '');
+      node.classList.remove('mermaid-pending');
+      node.classList.add('mermaid-loading');
+      node.textContent = '図を描画中…';
+      const id = 'mermaid-svg-' + (mermaidSeq++);
+      try {
+        const { svg } = await window.mermaid.render(id, src);
+        node.classList.remove('mermaid-loading');
+        node.innerHTML = svg;
+      } catch (err) {
+        node.classList.remove('mermaid-loading');
+        node.classList.add('mermaid-error');
+        node.textContent = 'Mermaid 構文エラー:\n' + (err && err.message ? err.message : String(err));
+      }
+    });
+  };
+
+  if (window.mermaid) {
+    if (!window.mermaid.__inited) {
+      window.mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+      window.mermaid.__inited = true;
+    }
+    run();
+  } else {
+    setTimeout(() => renderMermaid(scopeEl), 500);
+  }
+}
 
 // ── ブロック分割（フェンスを1ブロックとしてまとめる）
 function splitBlocks(md) {
@@ -535,9 +769,20 @@ function splitBlocks(md) {
       buf.push(l);
       continue;
     }
+    if (!inFence && /^\$\$\s*$/.test(l.trim())) {
+      push();
+      inFence = true;
+      fenceMark = '$$';
+      buf.push(l);
+      continue;
+    }
     if (inFence) {
       buf.push(l);
-      if (l.startsWith(fenceMark)) { inFence = false; fenceMark = ''; push(); }
+      if (fenceMark === '$$') {
+        if (/^\$\$\s*$/.test(l.trim())) { inFence = false; fenceMark = ''; push(); }
+      } else if (l.startsWith(fenceMark)) {
+        inFence = false; fenceMark = ''; push();
+      }
       continue;
     }
     // 空行 = ブロック区切り
@@ -559,7 +804,7 @@ class Block {
   constructor(md, container) {
     this.md = md;
     this.editing = false;
-    this.isFence = /^(`{3,}|~{3,})/.test(md);
+    this.isFence = isFenceStart(md);
 
     this.root = document.createElement('div');
     this.root.className = 'block' + (this.isFence ? ' block-fence' : '');
@@ -592,6 +837,7 @@ class Block {
     } else {
       this.render.innerHTML = html;
       this.render.classList.remove('empty');
+      renderExtras(this.render);
     }
   }
 
@@ -607,7 +853,7 @@ class Block {
     // テキスト変更
     this.input.addEventListener('input', () => {
       this.md = this.input.value;
-      this.isFence = /^(`{3,}|~{3,})/.test(this.md);
+      this.isFence = isFenceStart(this.md);
       this.root.classList.toggle('block-fence', this.isFence);
       this._autoResize();
       updateStat();
@@ -820,6 +1066,24 @@ document.getElementById('btn-h3')    .onclick = () => prependLine('### ');
 document.getElementById('btn-ul')    .onclick = () => prependLine('- ');
 document.getElementById('btn-ol')    .onclick = () => prependLine('1. ');
 document.getElementById('btn-bq')    .onclick = () => prependLine('> ');
+document.getElementById('btn-math')  .onclick = () => wrapSelection('$','$');
+document.getElementById('btn-mermaid').onclick = () => {
+  const b = getActiveBlock();
+  const template = '```mermaid\ngraph TD\n  A[開始] --> B[終了]\n```';
+  if (!b) {
+    // 編集中のブロックがない場合は末尾に新規ブロックとして追加
+    const last = blockManager.blocks[blockManager.blocks.length - 1];
+    const nb = blockManager.insertAfter(last, template);
+    nb._startEdit();
+    return;
+  }
+  const ta = b.input;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  ta.setRangeText(template, s, e, 'end');
+  b.md = ta.value;
+  b._autoResize();
+  ta.focus();
+};
 
 document.getElementById('btn-copy').onclick = () => {
   navigator.clipboard.writeText(blockManager.getMarkdown())
