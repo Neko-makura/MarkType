@@ -1,6 +1,6 @@
-# MD Editor へようこそ
+# MarkType Editor へようこそ
 
-**Typora** 風のインラインプレビューエディタです。行をクリックすると生のMarkdownが表示されます。
+MarkDownのインラインプレビューエディタです。行をクリックすると生のMarkdownが表示されます。
 
 ## 機能
 
