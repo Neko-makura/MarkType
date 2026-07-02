@@ -20,6 +20,9 @@
 </script>
 <script src="library/tex-svg.js" id="MathJax-script" async></script>
 <script src="library/mermaid.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-tomorrow.min.css">
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1/plugins/autoloader/prism-autoloader.min.js"></script>
 <style>
   :root {
     --bg:        #1a1a2e;
@@ -106,6 +109,7 @@
 
   /* ── エディタ本体 ── */
   #editor-wrap {
+    position: relative;
     overflow-y: auto;
     padding: 48px max(10vw, 40px);
     scroll-behavior: smooth;
@@ -116,6 +120,29 @@
     margin: 0 auto;
     outline: none;
     min-height: calc(100vh - 100px);
+  }
+
+  /* ── ドラッグ&ドロップ オーバーレイ ── */
+  #dropzone-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(15, 52, 96, .55);
+    backdrop-filter: blur(2px);
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+  }
+  #dropzone-overlay.active { display: flex; }
+  #dropzone-msg {
+    font-family: var(--font-ui);
+    font-size: 1.4em;
+    color: var(--text);
+    background: var(--surface);
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    padding: 2em 3em;
   }
 
   /* ── ブロック共通 ── */
@@ -222,7 +249,26 @@
     padding: 0;
     font-size: .87em;
     line-height: 1.55;
+    font-family: var(--font-mono);
+    text-shadow: none;
   }
+  .block-render pre[class*="language-"],
+  .block-render code[class*="language-"] {
+    background: none;
+    text-shadow: none;
+  }
+  .block-render .language-badge {
+    position: absolute;
+    top: .4em;
+    right: .8em;
+    font-size: .72em;
+    color: var(--muted);
+    font-family: var(--font-ui);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    user-select: none;
+  }
+  .block-render pre { position: relative; }
 
   .block-render hr {
     border: none;
@@ -340,13 +386,22 @@
     <button class="tb-btn" id="btn-math" title="Inline math $...$">Σ math</button>
     <button class="tb-btn" id="btn-mermaid" title="Mermaid diagram">◇ diagram</button>
     <div class="tb-sep"></div>
+    <button class="tb-btn" id="btn-open" title="Open .md file">📂 Open</button>
+    <button class="tb-btn" id="btn-download" title="Download .md (Ctrl+S)">💾 Save</button>
+    <button class="tb-btn" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+    <button class="tb-btn" id="btn-redo" title="Redo (Ctrl+Y / Ctrl+Shift+Z)">↷</button>
+    <div class="tb-sep"></div>
     <button class="tb-btn" id="btn-copy">Copy MD</button>
     <span class="tb-stat" id="stat">0 words</span>
   </div>
   <div id="editor-wrap">
     <div id="editor"></div>
+    <div id="dropzone-overlay">
+      <div id="dropzone-msg">📄 ここに .md ファイルをドロップ</div>
+    </div>
   </div>
 </div>
+<input type="file" id="file-input" accept=".md,.markdown,.txt" style="display:none">
 
 <script>
 'use strict';
@@ -716,6 +771,26 @@ let mermaidSeq = 0;
 function renderExtras(scopeEl) {
   renderMath(scopeEl);
   renderMermaid(scopeEl);
+  renderPrism(scopeEl);
+}
+
+function renderPrism(scopeEl) {
+  const blocks = scopeEl.querySelectorAll('pre code[class*="language-"]');
+  if (!blocks.length) return;
+  const run = () => {
+    if (window.Prism.plugins && window.Prism.plugins.autoloader && !window.Prism.__pathSet) {
+      window.Prism.plugins.autoloader.languages_path = 'https://cdn.jsdelivr.net/npm/prismjs@1/components/';
+      window.Prism.__pathSet = true;
+    }
+    blocks.forEach(el => {
+      try { window.Prism.highlightElement(el); } catch (err) { /* 未対応言語などは無視 */ }
+    });
+  };
+  if (window.Prism && window.Prism.highlightElement) {
+    run();
+  } else {
+    setTimeout(() => renderPrism(scopeEl), 500);
+  }
 }
 
 function renderMath(scopeEl) {
@@ -874,6 +949,7 @@ class Block {
       this.root.classList.toggle('block-fence', this.isFence);
       this._autoResize();
       updateStat();
+      History.commitDebounced(blockManager.getMarkdown());
     });
 
     // フォーカス外れ→レンダリング
@@ -902,6 +978,7 @@ class Block {
     this.input.style.display = 'none';
     this.render.style.display = '';
     this._updateRender();
+    History.commit(blockManager.getMarkdown());
   }
 
   _onKey(e) {
@@ -917,6 +994,7 @@ class Block {
       const nb = blockManager.insertAfter(this, after.trimStart() || '');
       nb._startEdit();
       nb.input.setSelectionRange(0, 0);
+      History.commit(blockManager.getMarkdown());
       return;
     }
 
@@ -936,6 +1014,7 @@ class Block {
       blockManager.remove(this);
       prev._startEdit();
       prev.input.setSelectionRange(joinPos, joinPos);
+      History.commit(blockManager.getMarkdown());
       return;
     }
 
@@ -951,6 +1030,7 @@ class Block {
         blockManager.remove(next);
         this._startEdit();
         this.input.setSelectionRange(joinPos, joinPos);
+        History.commit(blockManager.getMarkdown());
         return;
       }
     }
@@ -1041,6 +1121,53 @@ function updateStat() {
   document.getElementById('stat').textContent = `${words} words · ${chars} chars`;
 }
 
+// ── Undo / Redo
+const History = {
+  stack: [],
+  pointer: -1,
+  max: 100,
+  _suspend: false,
+  _debounceTimer: null,
+
+  init(md) {
+    this.stack = [md];
+    this.pointer = 0;
+  },
+
+  commit(md) {
+    if (this._suspend) return;
+    md = md === undefined ? blockManager.getMarkdown() : md;
+    if (this.stack[this.pointer] === md) return;
+    this.stack = this.stack.slice(0, this.pointer + 1);
+    this.stack.push(md);
+    if (this.stack.length > this.max) this.stack.shift();
+    this.pointer = this.stack.length - 1;
+  },
+
+  commitDebounced(md) {
+    clearTimeout(this._debounceTimer);
+    this._debounceTimer = setTimeout(() => this.commit(md), 500);
+  },
+
+  undo() {
+    if (this.pointer <= 0) return null;
+    this.pointer--;
+    return this.stack[this.pointer];
+  },
+
+  redo() {
+    if (this.pointer >= this.stack.length - 1) return null;
+    this.pointer++;
+    return this.stack[this.pointer];
+  }
+};
+
+function applyHistorySnapshot(md) {
+  History._suspend = true;
+  blockManager.init(md);
+  History._suspend = false;
+}
+
 // ── ツールバー操作（現在フォーカス中ブロックへ適用）
 function getActiveBlock() {
   return blockManager.blocks.find(b => b.editing) || null;
@@ -1111,6 +1238,112 @@ document.getElementById('btn-copy').onclick = () => {
     });
 };
 
+let currentFileName = 'untitled.md';
+
+function loadMarkdownFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = String(reader.result);
+    blockManager.blocks.forEach(b => { if (b.editing) b._endEdit(); });
+    blockManager.init(text);
+    History.init(text);
+    currentFileName = file.name || 'untitled.md';
+    updateStat();
+  };
+  reader.onerror = () => {
+    alert('ファイルの読み込みに失敗しました。');
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function downloadMarkdown() {
+  blockManager.blocks.forEach(b => { if (b.editing) b._endEdit(); });
+  const md = blockManager.getMarkdown();
+  try {
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = currentFileName.endsWith('.md') ? currentFileName : (currentFileName + '.md');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+
+    const btn = document.getElementById('btn-download');
+    const orig = btn.textContent;
+    btn.textContent = '✅ Saved';
+    setTimeout(() => btn.textContent = orig, 1200);
+  } catch (err) {
+    console.error('Download failed:', err);
+    alert('ダウンロードに失敗しました。ブラウザの設定をご確認ください。');
+  }
+}
+
+const fileInput = document.getElementById('file-input');
+document.getElementById('btn-open').onclick = () => fileInput.click();
+fileInput.addEventListener('change', () => {
+  if (fileInput.files && fileInput.files[0]) {
+    loadMarkdownFile(fileInput.files[0]);
+  }
+  fileInput.value = '';
+});
+document.getElementById('btn-download').onclick = downloadMarkdown;
+
+const dropOverlay = document.getElementById('dropzone-overlay');
+let dragCounter = 0;
+
+function isFileDrag(e) {
+  return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+}
+
+window.addEventListener('dragenter', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragCounter++;
+  dropOverlay.classList.add('active');
+});
+window.addEventListener('dragover', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+});
+window.addEventListener('dragleave', e => {
+  if (!isFileDrag(e)) return;
+  dragCounter = Math.max(0, dragCounter - 1);
+  if (dragCounter === 0) dropOverlay.classList.remove('active');
+});
+window.addEventListener('drop', e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('active');
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) {
+    if (!/\.(md|markdown|txt)$/i.test(file.name)) {
+      alert('.md / .markdown / .txt ファイルをドロップしてください。');
+      return;
+    }
+    loadMarkdownFile(file);
+  }
+});
+
+function doUndo() {
+  blockManager.blocks.forEach(b => { if (b.editing) b._endEdit(); });
+  History.commit(blockManager.getMarkdown());
+  const snap = History.undo();
+  if (snap !== null) applyHistorySnapshot(snap);
+}
+
+function doRedo() {
+  blockManager.blocks.forEach(b => { if (b.editing) b._endEdit(); });
+  const snap = History.redo();
+  if (snap !== null) applyHistorySnapshot(snap);
+}
+
+document.getElementById('btn-undo').onclick = doUndo;
+document.getElementById('btn-redo').onclick = doRedo;
+
 // ── エディタ外クリックで全ブロックをレンダリングに戻す
 document.getElementById('editor-wrap').addEventListener('mousedown', e => {
   if (!editorEl.contains(e.target)) {
@@ -1122,8 +1355,12 @@ document.getElementById('editor-wrap').addEventListener('mousedown', e => {
 document.addEventListener('keydown', e => {
   if (e.ctrlKey || e.metaKey) {
     if (e.key === 'b') { e.preventDefault(); wrapSelection('**','**'); }
-    if (e.key === 'i') { e.preventDefault(); wrapSelection('*','*'); }
-    if (e.key === '`') { e.preventDefault(); wrapSelection('`','`'); }
+    else if (e.key === 'i') { e.preventDefault(); wrapSelection('*','*'); }
+    else if (e.key === '`') { e.preventDefault(); wrapSelection('`','`'); }
+    else if (e.key.toLowerCase() === 's') { e.preventDefault(); downloadMarkdown(); }
+    else if (e.key.toLowerCase() === 'z' && e.shiftKey) { e.preventDefault(); doRedo(); }
+    else if (e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
+    else if (e.key.toLowerCase() === 'y') { e.preventDefault(); doRedo(); }
   }
 });
 
@@ -1131,6 +1368,7 @@ document.addEventListener('keydown', e => {
 (async () => {
   const initialMd = await loadInitialMarkdown();
   blockManager.init(initialMd);
+  History.init(initialMd);
 })();
 </script>
 </body>

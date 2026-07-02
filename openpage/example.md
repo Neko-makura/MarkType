@@ -10,7 +10,7 @@ MarkDownのインラインプレビューエディタです。行をクリック
 
 ## インライン記法
 
-**太字** · *斜体* · ~~打消し~~ · \`code\` · [リンク](https://example.com)
+**太字** · *斜体* · ~~打消し~~ · `code` · [リンク](https://example.com)
 
 ## 画像
 
@@ -18,11 +18,11 @@ MarkDownのインラインプレビューエディタです。行をクリック
 
 ![サンプル画像](https://picsum.photos/seed/mdtype/600/300)
 
-サイズ指定（ \`=幅x高さ\` 形式）:
+サイズ指定（ `=幅x高さ` 形式）:
 
 ![サイズ指定画像](https://picsum.photos/seed/small/400/400 =200x200)
 
-サイズ指定（ \`{width=... height=...}\` 形式、%指定も可）:
+サイズ指定（ `{width=... height=...}` 形式、%指定も可）:
 
 ![サイズ指定画像2](https://picsum.photos/seed/wide/800/300){width=80%}
 
@@ -34,10 +34,10 @@ MarkDownのインラインプレビューエディタです。行をクリック
 
 ## コードブロック
 
-\`\`\`js
-const greet = name => \`Hello, \${name}!\`;
+```js
+const greet = name => `Hello, ${name}!`;
 console.log(greet('world'));
-\`\`\`
+```
 
 ## テーブル
 
@@ -49,7 +49,7 @@ console.log(greet('world'));
 
 ---
 
-> 引用文は \`>\` で書きます。
+> 引用文は `>` で書きます。
 
 ## 数式（MathJax）
 
@@ -58,19 +58,19 @@ console.log(greet('world'));
 ブロック数式:
 
 $$
-\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\\pi}
 $$
 
 ## 図表（Mermaid）
 
-\`\`\`mermaid
+```mermaid
 graph TD
   A[開始] --> B{条件分岐}
   B -->|Yes| C[処理A]
   B -->|No| D[処理B]
   C --> E[終了]
   D --> E[終了]
-\`\`\`
+```
 
 ## 数式テキスト
 
